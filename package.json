@@ -1,0 +1,45 @@
+{
+  "name": "workspace-switcher",
+  "displayName": "Workspace Switcher",
+  "description": "Quickly switch between .code-workspace files in the current root directory.",
+  "version": "0.0.1",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/hrtk91/workspace-switcher.git"
+  },
+  "engines": {
+    "vscode": "^1.85.0"
+  },
+  "categories": [
+    "Other"
+  ],
+  "activationEvents": [
+    "onCommand:workspaceSwitcher.switchInRoot"
+  ],
+  "main": "./dist/extension.js",
+  "contributes": {
+    "commands": [
+      {
+        "command": "workspaceSwitcher.switchInRoot",
+        "title": "Workspace Switcher: Switch in current root"
+      }
+    ],
+    "keybindings": [
+      {
+        "command": "workspaceSwitcher.switchInRoot",
+        "key": "ctrl+alt+w",
+        "when": "editorFocus"
+      }
+    ]
+  },
+  "scripts": {
+    "vscode:prepublish": "npm run compile",
+    "compile": "tsc -p ./",
+    "watch": "tsc -watch -p ./"
+  },
+  "devDependencies": {
+    "@types/node": "^20.11.30",
+    "@types/vscode": "^1.85.0",
+    "typescript": "^5.3.3"
+  }
+}
