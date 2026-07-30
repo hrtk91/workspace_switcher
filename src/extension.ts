@@ -3,10 +3,11 @@ import { promises as fs, constants, Dirent } from 'fs';
 import * as path from 'path';
 import { execFile } from 'child_process';
 
-// -----------------------------------------------------------------------------
-// 現在のworkspaceから探索起点を決定する
-// -----------------------------------------------------------------------------
+// #region 現在のworkspaceから探索起点を決定する
 
+/**
+ * 現在開いているworkspaceまたはfolderから、実在する探索起点を返す。
+ */
 async function getRootDirectory(): Promise<string | undefined> {
     const workspaceFile = vscode.workspace.workspaceFile;
     if (workspaceFile) {
@@ -28,6 +29,9 @@ async function getRootDirectory(): Promise<string | undefined> {
     return undefined;
 }
 
+/**
+ * 指定パスが実在するディレクトリかを返す。
+ */
 async function isDirectory(target: string): Promise<boolean> {
     try {
         return (await fs.stat(target)).isDirectory();
@@ -36,9 +40,9 @@ async function isDirectory(target: string): Promise<boolean> {
     }
 }
 
-// -----------------------------------------------------------------------------
-// Gitリポジトリに属するworktreeを検出する
-// -----------------------------------------------------------------------------
+// #endregion
+
+// #region Gitリポジトリに属するworktreeを検出する
 
 interface WorktreeInfo {
     path: string;
@@ -46,6 +50,9 @@ interface WorktreeInfo {
     branch?: string;
 }
 
+/**
+ * 指定ディレクトリが属するGit worktreeのルートを返す。
+ */
 async function getGitTopLevel(dir: string): Promise<string | undefined> {
     return new Promise(resolve => {
         execFile('git', ['rev-parse', '--show-toplevel'], { cwd: dir }, (err, stdout) => {
@@ -55,6 +62,9 @@ async function getGitTopLevel(dir: string): Promise<string | undefined> {
     });
 }
 
+/**
+ * Gitのporcelain出力を、表示とworkspace生成に必要なworktree情報へ変換する。
+ */
 async function getWorktrees(dir: string): Promise<WorktreeInfo[]> {
     return new Promise(resolve => {
         execFile('git', ['worktree', 'list', '--porcelain'], { cwd: dir }, (err, stdout) => {
@@ -80,9 +90,9 @@ async function getWorktrees(dir: string): Promise<WorktreeInfo[]> {
     });
 }
 
-// -----------------------------------------------------------------------------
-// workspace候補を列挙し、選択先へテンプレートを配置する
-// -----------------------------------------------------------------------------
+// #endregion
+
+// #region workspace候補を列挙し、選択先へテンプレートを配置する
 
 interface WorkspaceItem extends vscode.QuickPickItem {
     fullPath: string;
@@ -94,6 +104,10 @@ interface SearchDirectory {
     worktree?: WorktreeInfo;
 }
 
+/**
+ * 指定ディレクトリの直下にあるworkspaceファイルを列挙する。
+ * 読み取れない、または既に存在しないディレクトリは候補なしとして扱う。
+ */
 async function listWorkspaceFiles(dir: string): Promise<string[]> {
     try {
         const entries = await fs.readdir(dir, { withFileTypes: true });
@@ -108,6 +122,9 @@ async function listWorkspaceFiles(dir: string): Promise<string[]> {
     }
 }
 
+/**
+ * workspace候補をQuickPickで表示し、ユーザーが選択した項目を返す。
+ */
 async function pickWorkspace(workspaces: WorkspaceItem[]): Promise<WorkspaceItem | undefined> {
     if (workspaces.length === 0) {
         vscode.window.showInformationMessage('No .code-workspace files found.');
@@ -121,6 +138,10 @@ async function pickWorkspace(workspaces: WorkspaceItem[]): Promise<WorkspaceItem
     return choice;
 }
 
+/**
+ * テンプレート由来の候補を選択先worktreeへコピーし、開くworkspaceのパスを返す。
+ * 選択後に同名ファイルが作られていた場合は既存ファイルを優先する。
+ */
 async function materializeWorkspace(item: WorkspaceItem): Promise<string> {
     if (!item.templatePath) {
         return item.fullPath;
@@ -137,10 +158,13 @@ async function materializeWorkspace(item: WorkspaceItem): Promise<string> {
     return item.fullPath;
 }
 
-// -----------------------------------------------------------------------------
-// workspace切り替えコマンドを実行する
-// -----------------------------------------------------------------------------
+// #endregion
 
+// #region workspace切り替えコマンドを実行する
+
+/**
+ * 現在のGitリポジトリに属するworktreeからworkspaceを選択して開く。
+ */
 async function switchWorkspace(): Promise<void> {
     // 処理順:
     // 1. 現在のworkspaceから探索起点を決定し、利用可能か検証する。
@@ -221,15 +245,23 @@ async function switchWorkspace(): Promise<void> {
     await vscode.commands.executeCommand('vscode.openFolder', uri, false);
 }
 
-// -----------------------------------------------------------------------------
-// VS Code拡張のライフサイクルを管理する
-// -----------------------------------------------------------------------------
+// #endregion
 
+// #region VS Code拡張のライフサイクルを管理する
+
+/**
+ * workspace切り替えコマンドをVS Codeへ登録する。
+ */
 export function activate(context: vscode.ExtensionContext) {
     const disposable = vscode.commands.registerCommand('workspaceSwitcher.switchInRoot', switchWorkspace);
     context.subscriptions.push(disposable);
 }
 
+/**
+ * 拡張停止時の後処理は不要なため何もしない。
+ */
 export function deactivate() {
     // nothing to clean up
 }
+
+// #endregion
