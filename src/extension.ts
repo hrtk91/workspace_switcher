@@ -144,12 +144,12 @@ async function switchWorkspace(): Promise<void> {
     const topLevel = await getGitTopLevel(root);
     if (topLevel) {
         const worktrees = await getWorktrees(topLevel);
-        const existingWorktrees: SearchDirectory[] = [];
-        for (const wt of worktrees) {
-            if (await isDirectory(wt.path)) {
-                existingWorktrees.push({ path: wt.path, worktree: wt });
-            }
-        }
+        const worktreeExists = await Promise.all(
+            worktrees.map(worktree => isDirectory(worktree.path))
+        );
+        const existingWorktrees = worktrees
+            .filter((_, index) => worktreeExists[index])
+            .map(worktree => ({ path: worktree.path, worktree }));
 
         if (existingWorktrees.length > 0) {
             searchDirs = existingWorktrees;
