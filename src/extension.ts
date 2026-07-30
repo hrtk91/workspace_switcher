@@ -126,6 +126,14 @@ async function materializeWorkspace(item: WorkspaceItem): Promise<string> {
 }
 
 async function switchWorkspace(): Promise<void> {
+    // 処理順:
+    // 1. 現在のworkspaceから探索起点を決定し、利用可能か検証する。
+    // 2. Git worktreeを列挙し、main worktreeのworkspaceファイルをテンプレートとして取得する。
+    // 3. 各worktreeのworkspace候補を表示用データへ変換する。
+    // 4. 選択されたworktreeに必要ならworkspaceファイルをコピーする。
+    // 5. 選択先のworkspaceを新しいVS Codeウィンドウで開く。
+
+    // 1. 現在のworkspaceから探索起点を決定し、利用可能か検証する。
     const root = await getRootDirectory();
     if (!root) {
         const hasWorkspaceLocation = Boolean(
@@ -138,6 +146,7 @@ async function switchWorkspace(): Promise<void> {
         return;
     }
 
+    // 2. Git worktreeを列挙し、main worktreeのworkspaceファイルをテンプレートとして取得する。
     let searchDirs: SearchDirectory[] = [{ path: root }];
     let templateFiles: string[] = [];
 
@@ -157,6 +166,7 @@ async function switchWorkspace(): Promise<void> {
         }
     }
 
+    // 3. 各worktreeのworkspace候補を表示用データへ変換する。
     const items: WorkspaceItem[] = [];
     for (const searchDir of searchDirs) {
         const dir = searchDir.path;
@@ -182,12 +192,15 @@ async function switchWorkspace(): Promise<void> {
         }
     }
 
+    // 4. 選択されたworktreeに必要ならworkspaceファイルをコピーする。
     const choice = await pickWorkspace(items);
     if (!choice) {
         return;
     }
 
     const target = await materializeWorkspace(choice);
+
+    // 5. 選択先のworkspaceを新しいVS Codeウィンドウで開く。
     const uri = vscode.Uri.file(target);
     await vscode.commands.executeCommand('vscode.openFolder', uri, false);
 }
