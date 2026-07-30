@@ -3,6 +3,10 @@ import { promises as fs, constants, Dirent } from 'fs';
 import * as path from 'path';
 import { execFile } from 'child_process';
 
+// -----------------------------------------------------------------------------
+// 現在のworkspaceから探索起点を決定する
+// -----------------------------------------------------------------------------
+
 async function getRootDirectory(): Promise<string | undefined> {
     const workspaceFile = vscode.workspace.workspaceFile;
     if (workspaceFile) {
@@ -32,6 +36,16 @@ async function isDirectory(target: string): Promise<boolean> {
     }
 }
 
+// -----------------------------------------------------------------------------
+// Gitリポジトリに属するworktreeを検出する
+// -----------------------------------------------------------------------------
+
+interface WorktreeInfo {
+    path: string;
+    head?: string;
+    branch?: string;
+}
+
 async function getGitTopLevel(dir: string): Promise<string | undefined> {
     return new Promise(resolve => {
         execFile('git', ['rev-parse', '--show-toplevel'], { cwd: dir }, (err, stdout) => {
@@ -39,12 +53,6 @@ async function getGitTopLevel(dir: string): Promise<string | undefined> {
             resolve(stdout.trim());
         });
     });
-}
-
-interface WorktreeInfo {
-    path: string;
-    head?: string;
-    branch?: string;
 }
 
 async function getWorktrees(dir: string): Promise<WorktreeInfo[]> {
@@ -72,6 +80,20 @@ async function getWorktrees(dir: string): Promise<WorktreeInfo[]> {
     });
 }
 
+// -----------------------------------------------------------------------------
+// workspace候補を列挙し、選択先へテンプレートを配置する
+// -----------------------------------------------------------------------------
+
+interface WorkspaceItem extends vscode.QuickPickItem {
+    fullPath: string;
+    templatePath?: string;
+}
+
+interface SearchDirectory {
+    path: string;
+    worktree?: WorktreeInfo;
+}
+
 async function listWorkspaceFiles(dir: string): Promise<string[]> {
     try {
         const entries = await fs.readdir(dir, { withFileTypes: true });
@@ -84,16 +106,6 @@ async function listWorkspaceFiles(dir: string): Promise<string[]> {
         }
         throw err;
     }
-}
-
-interface WorkspaceItem extends vscode.QuickPickItem {
-    fullPath: string;
-    templatePath?: string;
-}
-
-interface SearchDirectory {
-    path: string;
-    worktree?: WorktreeInfo;
 }
 
 async function pickWorkspace(workspaces: WorkspaceItem[]): Promise<WorkspaceItem | undefined> {
@@ -124,6 +136,10 @@ async function materializeWorkspace(item: WorkspaceItem): Promise<string> {
 
     return item.fullPath;
 }
+
+// -----------------------------------------------------------------------------
+// workspace切り替えコマンドを実行する
+// -----------------------------------------------------------------------------
 
 async function switchWorkspace(): Promise<void> {
     // 処理順:
@@ -204,6 +220,10 @@ async function switchWorkspace(): Promise<void> {
     const uri = vscode.Uri.file(target);
     await vscode.commands.executeCommand('vscode.openFolder', uri, false);
 }
+
+// -----------------------------------------------------------------------------
+// VS Code拡張のライフサイクルを管理する
+// -----------------------------------------------------------------------------
 
 export function activate(context: vscode.ExtensionContext) {
     const disposable = vscode.commands.registerCommand('workspaceSwitcher.switchInRoot', switchWorkspace);
