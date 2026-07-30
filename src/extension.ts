@@ -1,20 +1,35 @@
 import * as vscode from 'vscode';
-import { promises as fs, Dirent } from 'fs';
+import { promises as fs, constants, Dirent } from 'fs';
 import * as path from 'path';
 import { execFile } from 'child_process';
 
 async function getRootDirectory(): Promise<string | undefined> {
     const workspaceFile = vscode.workspace.workspaceFile;
     if (workspaceFile) {
-        return path.dirname(workspaceFile.fsPath);
+        const workspaceDirectory = path.dirname(workspaceFile.fsPath);
+        if (await isDirectory(workspaceDirectory)) {
+            return workspaceDirectory;
+        }
     }
 
     const folders = vscode.workspace.workspaceFolders;
-    if (folders && folders.length > 0) {
-        return folders[0].uri.fsPath;
+    if (folders) {
+        for (const folder of folders) {
+            if (await isDirectory(folder.uri.fsPath)) {
+                return folder.uri.fsPath;
+            }
+        }
     }
 
     return undefined;
+}
+
+async function isDirectory(target: string): Promise<boolean> {
+    try {
+        return (await fs.stat(target)).isDirectory();
+    } catch {
+        return false;
+    }
 }
 
 async function getGitTopLevel(dir: string): Promise<string | undefined> {
@@ -26,17 +41,33 @@ async function getGitTopLevel(dir: string): Promise<string | undefined> {
     });
 }
 
-async function getWorktreePaths(dir: string): Promise<string[]> {
+interface WorktreeInfo {
+    path: string;
+    head?: string;
+    branch?: string;
+}
+
+async function getWorktrees(dir: string): Promise<WorktreeInfo[]> {
     return new Promise(resolve => {
         execFile('git', ['worktree', 'list', '--porcelain'], { cwd: dir }, (err, stdout) => {
             if (err) { resolve([]); return; }
-            const paths: string[] = [];
-            for (const line of stdout.split('\n')) {
-                if (line.startsWith('worktree ')) {
-                    paths.push(line.slice('worktree '.length));
+            const worktrees: WorktreeInfo[] = [];
+            for (const block of stdout.trim().split('\n\n')) {
+                const worktree: Partial<WorktreeInfo> = {};
+                for (const line of block.split('\n')) {
+                    if (line.startsWith('worktree ')) {
+                        worktree.path = line.slice('worktree '.length);
+                    } else if (line.startsWith('HEAD ')) {
+                        worktree.head = line.slice('HEAD '.length);
+                    } else if (line.startsWith('branch refs/heads/')) {
+                        worktree.branch = line.slice('branch refs/heads/'.length);
+                    }
+                }
+                if (worktree.path) {
+                    worktrees.push(worktree as WorktreeInfo);
                 }
             }
-            resolve(paths);
+            resolve(worktrees);
         });
     });
 }
@@ -48,7 +79,7 @@ async function listWorkspaceFiles(dir: string): Promise<string[]> {
             .filter((entry: Dirent) => entry.isFile() && entry.name.endsWith('.code-workspace'))
             .map(entry => path.join(dir, entry.name));
     } catch (err: any) {
-        if (err && err.code === 'EACCES') {
+        if (err && ['EACCES', 'ENOENT', 'ENOTDIR'].includes(err.code)) {
             return [];
         }
         throw err;
@@ -57,9 +88,15 @@ async function listWorkspaceFiles(dir: string): Promise<string[]> {
 
 interface WorkspaceItem extends vscode.QuickPickItem {
     fullPath: string;
+    templatePath?: string;
 }
 
-async function pickWorkspace(workspaces: WorkspaceItem[]): Promise<string | undefined> {
+interface SearchDirectory {
+    path: string;
+    worktree?: WorktreeInfo;
+}
+
+async function pickWorkspace(workspaces: WorkspaceItem[]): Promise<WorkspaceItem | undefined> {
     if (workspaces.length === 0) {
         vscode.window.showInformationMessage('No .code-workspace files found.');
         return;
@@ -69,48 +106,88 @@ async function pickWorkspace(workspaces: WorkspaceItem[]): Promise<string | unde
         placeHolder: 'Select a workspace to open'
     });
 
-    return choice?.fullPath;
+    return choice;
+}
+
+async function materializeWorkspace(item: WorkspaceItem): Promise<string> {
+    if (!item.templatePath) {
+        return item.fullPath;
+    }
+
+    try {
+        await fs.copyFile(item.templatePath, item.fullPath, constants.COPYFILE_EXCL);
+    } catch (err: any) {
+        if (err?.code !== 'EEXIST') {
+            throw err;
+        }
+    }
+
+    return item.fullPath;
 }
 
 async function switchWorkspace(): Promise<void> {
     const root = await getRootDirectory();
     if (!root) {
-        vscode.window.showErrorMessage('No folder or workspace is currently open.');
+        const hasWorkspaceLocation = Boolean(
+            vscode.workspace.workspaceFile || vscode.workspace.workspaceFolders?.length
+        );
+        const message = hasWorkspaceLocation
+            ? 'The current workspace location no longer exists. Open an existing folder or workspace and try again.'
+            : 'No folder or workspace is currently open.';
+        vscode.window.showErrorMessage(message);
         return;
     }
 
-    const searchDirs: string[] = [root];
+    let searchDirs: SearchDirectory[] = [{ path: root }];
+    let templateFiles: string[] = [];
 
     const topLevel = await getGitTopLevel(root);
     if (topLevel) {
-        const worktrees = await getWorktreePaths(topLevel);
+        const worktrees = await getWorktrees(topLevel);
+        const existingWorktrees: SearchDirectory[] = [];
         for (const wt of worktrees) {
-            if (!searchDirs.includes(wt)) {
-                searchDirs.push(wt);
+            if (await isDirectory(wt.path)) {
+                existingWorktrees.push({ path: wt.path, worktree: wt });
             }
+        }
+
+        if (existingWorktrees.length > 0) {
+            searchDirs = existingWorktrees;
+            templateFiles = await listWorkspaceFiles(existingWorktrees[0].path);
         }
     }
 
     const items: WorkspaceItem[] = [];
-    for (const dir of searchDirs) {
+    for (const searchDir of searchDirs) {
+        const dir = searchDir.path;
         const files = await listWorkspaceFiles(dir);
-        for (const fullPath of files) {
-            const isWorktree = dir !== root;
+        const candidates: Array<{ fullPath: string; templatePath?: string }> = files.length > 0
+            ? files.map(fullPath => ({ fullPath }))
+            : templateFiles.map(templatePath => ({
+                fullPath: path.join(dir, path.basename(templatePath)),
+                templatePath,
+            }));
+
+        for (const candidate of candidates) {
             const dirLabel = path.basename(dir);
+            const worktreeDescription = searchDir.worktree?.branch
+                ?? (searchDir.worktree?.head ? `detached@${searchDir.worktree.head.slice(0, 7)}` : undefined);
             items.push({
-                label: path.basename(fullPath),
-                description: isWorktree ? `worktree: ${dirLabel}` : fullPath,
-                detail: isWorktree ? fullPath : undefined,
-                fullPath,
+                label: searchDir.worktree ? dirLabel : path.basename(candidate.fullPath),
+                description: worktreeDescription ?? candidate.fullPath,
+                detail: searchDir.worktree ? candidate.fullPath : undefined,
+                fullPath: candidate.fullPath,
+                templatePath: candidate.templatePath,
             });
         }
     }
 
-    const target = await pickWorkspace(items);
-    if (!target) {
+    const choice = await pickWorkspace(items);
+    if (!choice) {
         return;
     }
 
+    const target = await materializeWorkspace(choice);
     const uri = vscode.Uri.file(target);
     await vscode.commands.executeCommand('vscode.openFolder', uri, false);
 }

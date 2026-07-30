@@ -12,7 +12,10 @@
 - ルート判定:
   - `.code-workspace` を開いている場合はそのファイルの親ディレクトリ。
   - フォルダを開いている場合はそのフォルダ。
-- ルート直下の `.code-workspace` を `fs.promises.readdir` + `Dirent` で検索。
+- Git worktree がある場合は、main worktree 直下の `.code-workspace` をテンプレートとして扱う。
+- 候補には worktree のディレクトリ名とブランチ名を表示する。detached HEAD は短縮コミットIDを表示する。
+- `.code-workspace` がない worktree を選んだ場合は、テンプレートをその worktree のルート直下へコピーする。
+- workspace 内の相対パスは、コピー先の worktree を基準に解決される。
 - 選択したファイルを `vscode.openFolder` で新規ウィンドウとして開く。
 
 ## 開発
