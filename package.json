@@ -2,7 +2,7 @@
   "name": "workspace-switcher",
   "displayName": "Workspace Switcher",
   "description": "Quickly switch between .code-workspace files in the current root directory.",
-  "version": "0.0.1",
+  "version": "0.0.5",
   "repository": {
     "type": "git",
     "url": "https://github.com/hrtk91/workspace-switcher.git"
@@ -17,6 +17,11 @@
     "onCommand:workspaceSwitcher.switchInRoot"
   ],
   "main": "./dist/extension.js",
+  "files": [
+    "dist/extension.js",
+    "dist/extension.js.map",
+    "README.md"
+  ],
   "contributes": {
     "commands": [
       {
