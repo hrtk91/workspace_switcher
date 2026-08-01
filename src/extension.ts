@@ -179,7 +179,8 @@ async function selectWorkspaceCandidateWithQuickPick(
     }
 
     return vscode.window.showQuickPick(candidates, {
-        placeHolder: 'Select a workspace to open'
+        placeHolder: 'Select a workspace to open',
+        matchOnDescription: true,
     });
 }
 
