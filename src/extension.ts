@@ -130,6 +130,7 @@ async function listExistingGitWorktrees(
 interface WorkspaceCandidate extends vscode.QuickPickItem {
     workspaceFilePath: string;
     templateFilePath?: string;
+    createRootWorkspace?: boolean;
 }
 
 interface WorkspaceSearchTarget {
@@ -145,7 +146,12 @@ interface WorkspaceSearchContext {
 interface WorkspaceFileSource {
     workspaceFilePath: string;
     templateFilePath?: string;
+    createRootWorkspace?: boolean;
 }
+
+const ROOT_WORKSPACE_FILE_CONTENT = `${JSON.stringify({
+    folders: [{ path: '.' }],
+}, null, 4)}\n`;
 
 /**
  * 指定ディレクトリの直下にあるworkspaceファイルを列挙する。
@@ -185,13 +191,29 @@ async function selectWorkspaceCandidateWithQuickPick(
 }
 
 /**
- * テンプレート由来の候補を選択先worktreeへコピーし、開くworkspaceのパスを返す。
+ * 選択先に必要なworkspaceファイルを作成し、開くworkspaceのパスを返す。
  * 選択後に同名ファイルが作られていた場合は既存ファイルを優先する。
  */
 async function getOrCreateWorkspaceFilePathForCandidate(
     candidate: WorkspaceCandidate
 ): Promise<string> {
     if (!candidate.templateFilePath) {
+        if (!candidate.createRootWorkspace) {
+            return candidate.workspaceFilePath;
+        }
+
+        try {
+            await fs.writeFile(
+                candidate.workspaceFilePath,
+                ROOT_WORKSPACE_FILE_CONTENT,
+                { flag: 'wx' }
+            );
+        } catch (err: any) {
+            if (err?.code !== 'EEXIST') {
+                throw err;
+            }
+        }
+
         return candidate.workspaceFilePath;
     }
 
@@ -242,7 +264,7 @@ async function resolveWorkspaceSearchContext(
 }
 
 /**
- * 1つの検索対象について、既存workspaceまたはテンプレート由来のファイル情報を返す。
+ * 1つの検索対象について、既存workspace、テンプレート由来、またはルート用のファイル情報を返す。
  */
 async function listWorkspaceFileSourcesForSearchTarget(
     target: WorkspaceSearchTarget,
@@ -251,15 +273,27 @@ async function listWorkspaceFileSourcesForSearchTarget(
     const existingWorkspaceFilePaths = await listWorkspaceFilePathsInDirectory(
         target.directoryPath
     );
-    return existingWorkspaceFilePaths.length > 0
-        ? existingWorkspaceFilePaths.map(workspaceFilePath => ({ workspaceFilePath }))
-        : templateFilePaths.map(templateFilePath => ({
+    if (existingWorkspaceFilePaths.length > 0) {
+        return existingWorkspaceFilePaths.map(workspaceFilePath => ({ workspaceFilePath }));
+    }
+
+    if (templateFilePaths.length > 0) {
+        return templateFilePaths.map(templateFilePath => ({
             workspaceFilePath: path.join(
                 target.directoryPath,
                 path.basename(templateFilePath)
             ),
             templateFilePath,
         }));
+    }
+
+    return [{
+        workspaceFilePath: path.join(
+            target.directoryPath,
+            `${path.basename(target.directoryPath)}.code-workspace`
+        ),
+        createRootWorkspace: true,
+    }];
 }
 
 /**
@@ -280,6 +314,7 @@ function createWorkspaceCandidateForFileSource(
         detail: target.worktree ? source.workspaceFilePath : undefined,
         workspaceFilePath: source.workspaceFilePath,
         templateFilePath: source.templateFilePath,
+        createRootWorkspace: source.createRootWorkspace,
     };
 }
 
