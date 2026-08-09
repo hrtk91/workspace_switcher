@@ -1,6 +1,6 @@
 # Workspace Switcher
 
-現在開いているフォルダ（または `.code-workspace` のあるディレクトリ）直下の `.code-workspace` を列挙し、QuickPick から選んで別ウィンドウで開きます。
+現在開いているフォルダ（または `.code-workspace` のあるディレクトリ）を起点に workspace 候補を列挙し、QuickPick から選んで別ウィンドウで開きます。
 
 ## 使い方
 
@@ -15,6 +15,7 @@
 - Git worktree がある場合は、main worktree 直下の `.code-workspace` をテンプレートとして扱う。
 - 候補には worktree のディレクトリ名とブランチ名を表示する。detached HEAD は短縮コミットIDを表示する。
 - `.code-workspace` がない worktree を選んだ場合は、テンプレートをその worktree のルート直下へコピーする。
+- リポジトリ内にテンプレートが1つもない場合は、選択したルートを対象とする `<ルート名>.code-workspace` をそのルート直下へ作成する。
 - workspace 内の相対パスは、コピー先の worktree を基準に解決される。
 - 選択したファイルを `vscode.openFolder` で新規ウィンドウとして開く。
 
